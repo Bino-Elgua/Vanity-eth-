@@ -1,4 +1,6 @@
 import React from 'react'
+import { captureError } from '../utils/sentry'
+import { trackError } from '../utils/analytics'
 
 /**
  * Generic error boundary with recovery UI.
@@ -21,7 +23,8 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     this.setState({ errorInfo })
-    console.error('[ErrorBoundary]', error, errorInfo)
+    captureError(error, { component: this.props.fallbackTitle || 'ErrorBoundary', errorInfo })
+    trackError('component_crash', error.message || 'Unknown error')
   }
 
   handleReset = () => {

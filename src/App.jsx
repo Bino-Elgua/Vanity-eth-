@@ -1,8 +1,10 @@
-import React, { useState, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import useCloak from './hooks/useCloak';
 import ErrorBoundary from './components/ErrorBoundary';
 import Onboarding from './components/Onboarding';
+import { trackPageView, trackEvent, AnalyticsEvents } from './utils/analytics';
+import { getCurrentTier, TIER_LABELS } from './utils/features';
 
 // Lazy-loaded heavy components (code-split by Vite)
 const Generator = lazy(() => import('./components/Generator'));
@@ -76,7 +78,12 @@ function NavBar() {
   return (
     <nav className="border-b border-gray-800 mb-4 sm:mb-8">
       <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
-        <div className="text-base sm:text-xl font-bold gradient-text">VanityCloakSeed</div>
+        <div className="flex items-center gap-2">
+          <span className="text-base sm:text-xl font-bold gradient-text">VanityCloakSeed</span>
+          <span className="px-2 py-0.5 bg-gray-800 rounded-full text-[10px] sm:text-xs text-gray-400 font-medium">
+            {TIER_LABELS[getCurrentTier()]}
+          </span>
+        </div>
         <div className="flex gap-1 sm:gap-2">
           <NavLink
             to="/"
@@ -97,11 +104,20 @@ function NavBar() {
   );
 }
 
+function PageViewTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    trackPageView(location.pathname);
+  }, [location.pathname]);
+  return null;
+}
+
 export default function App() {
   return (
     <Router>
+      <PageViewTracker />
       <div className="min-h-screen bg-black text-white">
-        <Onboarding />
+        <Onboarding onComplete={() => trackEvent(AnalyticsEvents.ONBOARDING_COMPLETED)} />
         <NavBar />
         <main className="px-4 pb-12">
           <Suspense fallback={<LoadingSpinner />}>

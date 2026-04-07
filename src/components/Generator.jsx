@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { Play, Square, Copy, Download, PauseCircle } from 'lucide-react'
 import { generatePrivateKey, getPublicKey, getAddressFromPublicKey, matchesPattern, calculateDifficulty, formatTimeEstimate, validatePatternInputs } from '../utils/crypto'
+import { trackGenerationStarted, trackGenerationCompleted } from '../utils/analytics'
+import { getLimit, getCurrentTier } from '../utils/features'
+import UpgradeModal from './UpgradeModal'
 
 export default function Generator({ onResult, onStatsUpdate }) {
   const [prefix, setPrefix] = useState('')
@@ -18,6 +21,7 @@ export default function Generator({ onResult, onStatsUpdate }) {
   const [workerError, setWorkerError] = useState(null)
   const [isRateLimited, setIsRateLimited] = useState(false)
   const [rateLimitMessage, setRateLimitMessage] = useState(null)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
   const startTimeRef = React.useRef(null)
   const generationRef = React.useRef(null)
@@ -62,6 +66,8 @@ export default function Generator({ onResult, onStatsUpdate }) {
     setRateLimitMessage(null)
     lastBatchTimeRef.current = Date.now()
     startTimeRef.current = Date.now()
+
+    trackGenerationStarted('ethereum', prefix.length, suffix.length, workerCount)
 
     const difficulty = calculateDifficulty(prefix, suffix)
     let localAttempts = 0
@@ -118,6 +124,8 @@ export default function Generator({ onResult, onStatsUpdate }) {
         console.error('Generation error:', error)
       }
     }
+    const totalElapsed = (Date.now() - startTimeRef.current) / 1000
+    trackGenerationCompleted('ethereum', totalElapsed, localAttempts)
     setIsGenerating(false)
   }
 
@@ -284,6 +292,22 @@ export default function Generator({ onResult, onStatsUpdate }) {
           </div>
         )}
 
+        {/* Upgrade prompt */}
+        {found >= getLimit('maxResults') && getCurrentTier() === 'free' && (
+          <div className="bg-blue-900/30 border border-blue-600 rounded-lg p-4">
+            <p className="text-blue-300 text-sm">
+              You've reached the free tier limit ({getLimit('maxResults')} results).
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="text-blue-400 underline ml-1 font-medium"
+              >
+                Upgrade to Pro
+              </button>
+              {' '}for up to 100 results and all 6 chains.
+            </p>
+          </div>
+        )}
+
         {/* Buttons */}
         <div className="flex flex-col sm:flex-row gap-2">
           {!isGenerating ? (
@@ -307,6 +331,8 @@ export default function Generator({ onResult, onStatsUpdate }) {
           )}
         </div>
       </div>
+
+      <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
     </div>
   )
 }
