@@ -10,6 +10,11 @@ import { getCurrentTier, TIER_LABELS } from './utils/features';
 const Generator = lazy(() => import('./components/Generator'));
 const Results = lazy(() => import('./components/Results'));
 const Statistics = lazy(() => import('./components/Statistics'));
+const BatchGenerator = lazy(() => import('./components/BatchGenerator'));
+const Pricing = lazy(() => import('./pages/Pricing'));
+const ApiDashboard = lazy(() => import('./pages/ApiDashboard'));
+const Success = lazy(() => import('./pages/Success'));
+const Cancel = lazy(() => import('./pages/Cancel'));
 
 function LoadingSpinner() {
   return (
@@ -124,6 +129,11 @@ export default function App() {
             <Routes>
               <Route path="/" element={<VanityPage />} />
               <Route path="/cloakseed" element={<CloakSeedPage />} />
+              <Route path="/batch" element={<BatchGenerator />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/api" element={<ApiDashboard />} />
+              <Route path="/success" element={<Success />} />
+              <Route path="/cancel" element={<Cancel />} />
             </Routes>
           </Suspense>
         </main>

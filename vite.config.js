@@ -7,7 +7,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      buffer: 'buffer/',
+      stream: 'stream-browserify',
+      events: 'events/',
     },
+  },
+  define: {
+    global: 'globalThis',
   },
   server: {
     port: 5173,

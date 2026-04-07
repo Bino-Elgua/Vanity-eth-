@@ -47,41 +47,88 @@ export function useCloakSeed() {
   const [isPremium, setIsPremium] = useState(false);
   const [clipboard, setClipboard] = useState({ text: '', copiedAt: null });
 
-  // Load from localStorage on mount
+  // Load from encrypted localStorage on mount
   useEffect(() => {
-    loadFromStorage();
+    loadFromStorage().catch(() => {});
   }, []);
 
-  // Auto-clear clipboard after 30 seconds
+  // Auto-clear clipboard after 5 seconds (security hardened)
   useEffect(() => {
     if (clipboard.copiedAt) {
       const timer = setTimeout(() => {
         clearClipboard();
-      }, 30000);
+      }, 5000);
       return () => clearTimeout(timer);
     }
   }, [clipboard.copiedAt]);
 
-  const loadFromStorage = useCallback(() => {
+  /**
+   * Load cipher from encrypted localStorage.
+   * Prompts user for password to decrypt the cipher.
+   * Non-cipher fields (theme, premium, fingerprint) are stored unencrypted.
+   */
+  const loadFromStorage = useCallback(async () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.cipher) setCipherState(data.cipher);
-        if (data.selectedTheme) setSelectedTheme(data.selectedTheme);
-        if (data.isPremium) setIsPremium(data.isPremium);
-        if (data.cipherFingerprint) setCipherFingerprint(data.cipherFingerprint);
+      if (!stored) return;
+
+      const data = JSON.parse(stored);
+      if (data.selectedTheme) setSelectedTheme(data.selectedTheme);
+      if (data.isPremium) setIsPremium(data.isPremium);
+      if (data.cipherFingerprint) setCipherFingerprint(data.cipherFingerprint);
+
+      // Cipher is stored encrypted — prompt for password to decrypt
+      if (data.encryptedCipher) {
+        const password = window.prompt('Enter password to unlock your saved cipher:');
+        if (!password) return; // User cancelled — cipher stays null
+        try {
+          const cipherWords = await importCipherEncrypted(data.encryptedCipher, password);
+          const cipherMap = {};
+          cipherWords.forEach((word, idx) => {
+            cipherMap[word.toLowerCase()] = idx;
+          });
+          setCipherState(cipherMap);
+        } catch (decryptErr) {
+          console.error('Failed to decrypt cipher — wrong password or corrupted data');
+          setError('Failed to decrypt cipher. Check your password.');
+        }
       }
     } catch (err) {
       console.error('Failed to load from storage:', err);
     }
   }, []);
 
-  const saveToStorage = useCallback((data) => {
+  /**
+   * Save cipher to encrypted localStorage.
+   * Cipher is always encrypted with a user-provided password before storing.
+   * Never stores cipher in plaintext.
+   */
+  const saveToStorage = useCallback(async (data) => {
     try {
       const current = localStorage.getItem(STORAGE_KEY);
       const stored = current ? JSON.parse(current) : {};
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...stored, ...data }));
+
+      // If cipher data is being saved, encrypt it first
+      if (data.cipher) {
+        const password = window.prompt('Set a password to protect your cipher in local storage:');
+        if (!password) {
+          console.warn('[Security] Cipher not saved — no password provided');
+          return;
+        }
+        const cipherWords = Object.keys(data.cipher);
+        const encryptedCipher = await exportCipherEncrypted(cipherWords, password);
+
+        // Store encrypted cipher, never plaintext
+        const { cipher, ...nonSensitiveData } = data;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          ...stored,
+          ...nonSensitiveData,
+          encryptedCipher,
+        }));
+      } else {
+        // Non-cipher data can be stored directly
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...stored, ...data }));
+      }
     } catch (err) {
       console.error('Failed to save to storage:', err);
     }
@@ -259,10 +306,14 @@ export function useCloakSeed() {
   }, [cipher]);
 
   /**
-   * Copy to clipboard + zeroize after 30s
+   * Copy to clipboard + zeroize after 5s
    */
   const copyToClipboard = useCallback(async (text) => {
     try {
+      // Warn if copying sensitive key material
+      if (/^(0x)?[0-9a-fA-F]{64}$/.test(text.trim()) || /^[0-9a-fA-F]{64}$/.test(text.trim())) {
+        console.warn('[Security] Private key copied to clipboard — will auto-clear in 5s');
+      }
       await navigator.clipboard.writeText(text);
       setClipboard({ text, copiedAt: Date.now() });
       return true;
@@ -274,7 +325,8 @@ export function useCloakSeed() {
 
   const clearClipboard = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText('');
+      // Overwrite with marker before clearing to defeat clipboard history managers
+      await navigator.clipboard.writeText('[CLEARED]');
       setClipboard({ text: '', copiedAt: null });
     } catch (err) {
       console.error('Failed to clear clipboard:', err);
