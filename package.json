@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
-    "test": "vitest"
+    "test": "vitest",
+    "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
     "@noble/ed25519": "^2.0.0",

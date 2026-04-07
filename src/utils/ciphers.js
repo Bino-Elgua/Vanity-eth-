@@ -3,19 +3,33 @@
  * Maps custom 2048-word ciphers to BIP-39 indices
  */
 
-// Simple BIP-39 wordlist (first 100 words for demo)
-const BIP39_WORDS = [
-  'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absolute', 'abuse',
-  'access', 'accident', 'account', 'accuse', 'achieve', 'acid', 'acoustic', 'acquire',
-  'across', 'act', 'action', 'actor', 'actual', 'acuity', 'acute', 'ad',
-  'add', 'addicted', 'addition', 'additive', 'address', 'adjust', 'administer', 'admiral',
-  'admire', 'admit', 'adobe', 'adopt', 'adore', 'adorn', 'adult', 'advance',
-  'adverse', 'advertise', 'advice', 'advise', 'advocate', 'afar', 'afraid', 'after',
-  'again', 'against', 'age', 'agent', 'agile', 'aging', 'agitate', 'aglow',
-  'agony', 'agony', 'agree', 'ahead', 'aid', 'aide', 'ail', 'aim'
-];
-
 import { sha256 } from '@noble/hashes/sha256';
+import * as bip39 from 'bip39';
+
+// Full 2048-word BIP-39 English wordlist from the bip39 package
+const BIP39_WORDS = bip39.wordlists.EN;
+
+/**
+ * Validate that the BIP-39 wordlist is correctly loaded
+ * @returns {{ valid: boolean, error?: string }}
+ */
+export function validateBip39Wordlist() {
+  if (!BIP39_WORDS || BIP39_WORDS.length !== 2048) {
+    return { valid: false, error: `Expected 2048 BIP-39 words, got ${BIP39_WORDS?.length || 0}` };
+  }
+  // Checksum: verify known positions
+  const checks = [
+    [0, 'abandon'],
+    [2047, 'zoo'],
+    [1024, 'luxury'],
+  ];
+  for (const [idx, expected] of checks) {
+    if (BIP39_WORDS[idx] !== expected) {
+      return { valid: false, error: `Wordlist mismatch at index ${idx}: expected "${expected}", got "${BIP39_WORDS[idx]}"` };
+    }
+  }
+  return { valid: true };
+}
 
 /**
  * Generate a custom cipher: map 2048 custom words to BIP-39 indices
@@ -64,22 +78,28 @@ export function generateCipherFromTheme(themeWords, customizations = {}) {
  * Encode a BIP-39 phrase using custom cipher
  * Input: "abandon able zone" (real BIP-39 words)
  * Output: "fluff spark moon" (custom cipher words)
- * 
+ *
  * @param {string} bip39Phrase - Standard 12 or 24-word BIP-39 phrase
  * @param {string[]} cipherWords - Custom cipher words (2048)
  * @returns {string} Encoded cloak phrase
  */
 export function encodePhrase(bip39Phrase, cipherWords) {
+  if (!bip39.validateMnemonic(bip39Phrase.trim())) {
+    throw new Error('Invalid BIP-39 mnemonic phrase');
+  }
+  if (!cipherWords || cipherWords.length !== 2048) {
+    throw new Error('Cipher must contain exactly 2048 words');
+  }
+
   const phraseWords = bip39Phrase.trim().split(/\s+/);
 
   return phraseWords
     .map(word => {
       const index = BIP39_WORDS.indexOf(word.toLowerCase());
       if (index === -1) {
-        // If word not in demo list, just use hash
-        return cipherWords[Math.abs(word.charCodeAt(0)) % cipherWords.length];
+        throw new Error(`Word "${word}" is not in the BIP-39 wordlist`);
       }
-      return cipherWords[index % cipherWords.length];
+      return cipherWords[index];
     })
     .join(' ');
 }
@@ -88,23 +108,37 @@ export function encodePhrase(bip39Phrase, cipherWords) {
  * Decode a cloak phrase back to real BIP-39
  * Input: "fluff spark moon" (cloak)
  * Output: "abandon able zone" (real BIP-39)
- * 
+ *
  * @param {string} cloakPhrase - Custom cipher phrase
  * @param {string[]} cipherWords - Custom cipher words (2048)
  * @returns {string} Real BIP-39 phrase
  */
 export function decodePhrase(cloakPhrase, cipherWords) {
-  const cloakWords = cloakPhrase.trim().split(/\s+/);
+  if (!cipherWords || cipherWords.length !== 2048) {
+    throw new Error('Cipher must contain exactly 2048 words');
+  }
 
-  return cloakWords
+  const cloakWords = cloakPhrase.trim().split(/\s+/);
+  const cipherLookup = new Map(cipherWords.map((w, i) => [w.toLowerCase(), i]));
+
+  const decoded = cloakWords
     .map(word => {
-      const index = cipherWords.indexOf(word.toLowerCase());
-      if (index === -1) {
-        throw new Error(`Invalid cloak word: ${word}`);
+      const index = cipherLookup.get(word.toLowerCase());
+      if (index === undefined) {
+        throw new Error(`Invalid cloak word: "${word}" not found in cipher`);
       }
-      return BIP39_WORDS[index % BIP39_WORDS.length];
+      if (index >= BIP39_WORDS.length) {
+        throw new Error(`Cipher index ${index} out of BIP-39 range`);
+      }
+      return BIP39_WORDS[index];
     })
     .join(' ');
+
+  if (!bip39.validateMnemonic(decoded)) {
+    throw new Error('Decoded phrase failed BIP-39 checksum validation');
+  }
+
+  return decoded;
 }
 
 /**
@@ -155,16 +189,13 @@ export function hashCipher(cipherWords) {
  * @returns {Object} { cloakPhrase: string, seedPhrase: string, entropy: string }
  */
 export function generatePanicPhrase(cipherWords, panicInput = '') {
-  // Generate random entropy (12 words = 128-bit entropy)
+  // Generate a valid BIP-39 mnemonic (12 words = 128-bit entropy)
   const entropy = crypto.getRandomValues(new Uint8Array(16)); // 128 bits
-  
-  // Create fake seed from entropy (just use words at random indices)
-  const fakeSeed = Array(12)
-    .fill(0)
-    .map(() => BIP39_WORDS[Math.floor(Math.random() * BIP39_WORDS.length)])
-    .join(' ');
+  const fakeSeed = bip39.entropyToMnemonic(
+    Array.from(entropy).map(b => b.toString(16).padStart(2, '0')).join('')
+  );
 
-  // Encode fake seed with cipher
+  // Encode the valid fake seed with cipher
   const fakeCloak = encodePhrase(fakeSeed, cipherWords);
 
   return {
@@ -202,61 +233,132 @@ export function validateCloak(cloakPhrase, cipherWords) {
 }
 
 /**
- * Export cipher as encrypted JSON
+ * Derive an AES-256-GCM key from a password using PBKDF2
+ * @param {string} password
+ * @param {Uint8Array} salt
+ * @param {string[]} keyUsages - ['encrypt'] or ['decrypt']
+ * @returns {Promise<CryptoKey>}
+ */
+async function deriveKey(password, salt, keyUsages) {
+  const encoder = new TextEncoder();
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    passwordKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    keyUsages
+  );
+}
+
+function toBase64(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function fromBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Export cipher as AES-256-GCM encrypted JSON
  * @param {string[]} cipherWords - Cipher to export
  * @param {string} password - Password for encryption
- * @returns {string} Encrypted JSON string
+ * @returns {Promise<string>} Encrypted JSON string
  */
 export async function exportCipherEncrypted(cipherWords, password) {
-  // Simple XOR encryption (for demo; use proper crypto for production)
-  const cipherData = JSON.stringify({ words: cipherWords, version: 1 });
-  
-  // Derive key from password using PBKDF2
   const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  
-  // XOR cipher with key (simple, not cryptographically secure for production)
-  const keyArray = new Uint8Array(hashBuffer);
-  const dataArray = new Uint8Array(encoder.encode(cipherData));
-  const encrypted = new Uint8Array(dataArray.length);
-  
-  for (let i = 0; i < dataArray.length; i++) {
-    encrypted[i] = dataArray[i] ^ keyArray[i % keyArray.length];
-  }
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const key = await deriveKey(password, salt, ['encrypt']);
+
+  const plaintext = encoder.encode(JSON.stringify({ words: cipherWords }));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    plaintext
+  );
 
   return JSON.stringify({
-    version: 1,
-    encrypted: Buffer.from(encrypted).toString('base64'),
-    salt: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64')
+    version: 2,
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    encrypted: toBase64(new Uint8Array(ciphertext)),
   });
 }
 
 /**
- * Import encrypted cipher JSON
+ * Import encrypted cipher JSON (supports v1 migration and v2)
  * @param {string} encryptedJson - Encrypted JSON string
  * @param {string} password - Password for decryption
- * @returns {string[]} Decrypted cipher words
+ * @returns {Promise<string[]>} Decrypted cipher words
  */
 export async function importCipherEncrypted(encryptedJson, password) {
   const data = JSON.parse(encryptedJson);
-  
-  // Derive key from password
+
+  // v1 migration: legacy XOR format
+  if (data.version === 1) {
+    return importCipherV1(data, password);
+  }
+
+  // v2: AES-256-GCM
+  const salt = fromBase64(data.salt);
+  const iv = fromBase64(data.iv);
+  const ciphertext = fromBase64(data.encrypted);
+
+  const key = await deriveKey(password, salt, ['decrypt']);
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    ciphertext
+  );
+
+  const decoded = new TextDecoder().decode(plaintext);
+  const cipherData = JSON.parse(decoded);
+
+  const words = cipherData.words;
+  const validation = validateCipher(words);
+  if (!validation.isValid) {
+    throw new Error(`Decrypted cipher is invalid: ${validation.error}`);
+  }
+
+  return words;
+}
+
+/**
+ * Migration path for v1 (XOR) encrypted ciphers
+ * @param {Object} data - Parsed v1 JSON envelope
+ * @param {string} password
+ * @returns {Promise<string[]>}
+ */
+async function importCipherV1(data, password) {
   const encoder = new TextEncoder();
-  const pwData = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', pwData);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(password));
   const keyArray = new Uint8Array(hashBuffer);
-  
-  // Decrypt
-  const encrypted = new Uint8Array(Buffer.from(data.encrypted, 'base64'));
+
+  const encrypted = fromBase64(data.encrypted);
   const decrypted = new Uint8Array(encrypted.length);
-  
   for (let i = 0; i < encrypted.length; i++) {
     decrypted[i] = encrypted[i] ^ keyArray[i % keyArray.length];
   }
 
   const decryptedString = new TextDecoder().decode(decrypted);
   const cipherData = JSON.parse(decryptedString);
-  
   return cipherData.words;
 }

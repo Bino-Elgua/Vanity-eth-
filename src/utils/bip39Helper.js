@@ -9,95 +9,8 @@ import { Wallet, HDNodeWallet } from 'ethers';
 import { payments, networks } from 'bitcoinjs-lib';
 import nacl from 'tweetnacl';
 
-// Full BIP-39 English wordlist (2048 words)
-const BIP39_WORDLIST = [
-  'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absolute', 'abuse',
-  'access', 'accident', 'account', 'accuse', 'achieve', 'acid', 'acoustic', 'acquire',
-  'across', 'act', 'action', 'actor', 'actual', 'acuity', 'acute', 'ad', 'add',
-  'addicted', 'addition', 'additive', 'address', 'adjust', 'administer', 'admiral', 'admire',
-  'admit', 'adobe', 'adopt', 'adore', 'adorn', 'adult', 'advance', 'adverse',
-  'advertise', 'advice', 'advise', 'advocate', 'afar', 'afford', 'afraid', 'after',
-  'again', 'against', 'age', 'agency', 'agent', 'agree', 'ahead', 'aid', 'aide', 'ail',
-  'aim', 'air', 'aisle', 'ajar', 'ajog', 'akin', 'al', 'ala', 'alack', 'alacrity',
-  'aladdin', 'alagoas', 'alamo', 'aland', 'alane', 'alang', 'alani', 'alanine',
-  'alans', 'alant', 'alap', 'alarm', 'alarmable', 'alarmclock', 'alarmed', 'alarmedly',
-  'alarmedness', 'alarmer', 'alarmingly', 'alarmism', 'alarmist', 'alarmists', 'alarms',
-  'alary', 'alas', 'alaska', 'alate', 'alated', 'alate', 'alates', 'alb', 'alba',
-  'albacore', 'albania', 'albans', 'albarellos', 'albarelo', 'albas', 'albata', 'albatas',
-  'albee', 'albeit', 'alben', 'alberge', 'alberghi', 'albergo', 'albergos', 'alberta',
-  'albertine', 'albertino', 'albertite', 'alberton', 'albertus', 'albes', 'albespine',
-  'albie', 'albicore', 'albicores', 'albid', 'albidly', 'albification', 'albified',
-  'albifies', 'albify', 'albifying', 'albiness', 'albinic', 'albino', 'albinoism',
-  'albinotic', 'albinos', 'albite', 'albitess', 'albites', 'albitical', 'albitisation',
-  'albitised', 'albitises', 'albitising', 'albitite', 'albitization', 'albitized',
-  'albitizes', 'albitizing', 'albitoid', 'albitolite', 'albizia', 'albizias', 'alblaster',
-  'alboin', 'albs', 'albuginaceous', 'albuginea', 'albugines', 'albuginose', 'albuginous',
-  'albugo', 'album', 'albumen', 'albumens', 'albumin', 'albuminata', 'albuminatoria',
-  'albuminize', 'albuminized', 'albuminizes', 'albuminizing', 'albumins', 'albuminosa',
-  'albuminous', 'albuminous', 'albuminousness', 'albumose', 'albumoses', 'albums',
-  'alburna', 'alburnic', 'alburno', 'albus', 'albuterol', 'alca', 'alcade', 'alcades',
-  'alcahest', 'alcalde', 'alcaldes', 'alcali', 'alcalifia', 'alcalify', 'alcaligenes',
-  'alcalimeter', 'alcalimetre', 'alcaline', 'alcalise', 'alcalised', 'alcalises',
-  'alcalising', 'alcalism', 'alcalistic', 'alcalite', 'alcalizable', 'alcalize',
-  'alcalized', 'alcalizes', 'alcalizing', 'alcaloidal', 'alcaloid', 'alcaloides', 'alcaloids',
-  'alcalyzer', 'alcana', 'alcance', 'alcancias', 'alcandy', 'alcanes', 'alcanna',
-  'alcannas', 'alcantara', 'alcarraza', 'alcatras', 'alcatraz', 'alcaudl', 'alcayada',
-  'alcazuz', 'alce', 'alcelaphine', 'alcelaphus', 'alces', 'alchemic', 'alchemical',
-  'alchemically', 'alchemies', 'alchemise', 'alchemised', 'alchemises', 'alchemising',
-  'alchemist', 'alchemistry', 'alchemists', 'alchemize', 'alchemized', 'alchemizes',
-  'alchemizing', 'alchemy', 'alchera', 'alcherous', 'alches', 'alchymic', 'alchymical',
-  'alchymies', 'alchymist', 'alchymy', 'alcid', 'alcidine', 'alcids', 'alcime', 'alcina',
-  'alcine', 'alciones', 'alciphron', 'alcippe', 'alcippe', 'alcis', 'alcithoe', 'alcmaeon',
-  'alcman', 'alco', 'alcoate', 'alcohol', 'alcoholate', 'alcoholated', 'alcoholic',
-  'alcoholically', 'alcoholicity', 'alcoholics', 'alcoholiferous', 'alcoholimeter',
-  'alcoholimetry', 'alcoholisable', 'alcoholisation', 'alcoholise', 'alcoholised',
-  'alcoholises', 'alcoholising', 'alcoholism', 'alcoholist', 'alcoholizable',
-  'alcoholization', 'alcoholize', 'alcoholized', 'alcoholizes', 'alcoholizing', 'alcohols',
-  'alcoholuria', 'alcoholuric', 'alcomat', 'alcometer', 'alcometry', 'alcon', 'alcona',
-  'alconaftide', 'alconost', 'alconosts', 'alconquin', 'alcos', 'alcot', 'alcott',
-  'alcove', 'alcoved', 'alcoveless', 'alcoves', 'alcoy', 'alcubierre', 'alcumus',
-  'alcyon', 'alcyone', 'alcyoneous', 'alcyones', 'alcyonic', 'alcyonidan', 'alcyonidans',
-  'alcyonies', 'alcyonist', 'alcyonium', 'alcyons', 'alcyonula', 'alcyone', 'alcyonella',
-  'alcyoneum', 'alcyones', 'alcyonidans', 'alcyonium', 'alcyonula', 'alcyone', 'alcyonium',
-  'aldabra', 'aldabran', 'aldactone', 'alday', 'aldbourne', 'aldby', 'aldcroft',
-  'aldeia', 'aldehyd', 'aldehyde', 'aldehydes', 'aldehyc', 'aldehymic', 'aldehymic',
-  'aldeide', 'aldeido', 'aldekhyl', 'alden', 'alder', 'aldercarr', 'aldercarrs',
-  'alderdom', 'alderdominance', 'alderflea', 'alderflies', 'alderfly', 'aldergrove',
-  'alderholt', 'alderhorton', 'alderking', 'alderlake', 'alderleaf', 'alderley',
-  'alderling', 'alderman', 'aldermanager', 'aldermanate', 'aldermaness', 'aldermanic',
-  'aldermanical', 'aldermanlike', 'aldermanly', 'aldermanry', 'aldermans', 'aldermansip',
-  'aldermanship', 'aldermen', 'alders', 'aldershot', 'aldersyde', 'aldersyke',
-  'alderwoman', 'alderwomen', 'aldest', 'aldgate', 'aldhelm', 'aldine', 'aldines',
-  'aldington', 'aldini', 'aldis', 'aldiss', 'aldisted', 'aldithers', 'alditory',
-  'aldmaston', 'aldol', 'aldolase', 'aldolisation', 'aldolise', 'aldolised',
-  'aldolises', 'aldolising', 'aldolization', 'aldolize', 'aldolized', 'aldolizes',
-  'aldolizing', 'aldols', 'aldoluria', 'aldolytic', 'aldomet', 'aldonai', 'aldona',
-  'aldonah', 'aldones', 'aldonic', 'aldonise', 'aldonises', 'aldonize', 'aldonizes',
-  'aldose', 'aldoses', 'aldoslvester', 'aldoxime', 'aldoximes', 'aldred', 'aldreda',
-  'aldrich', 'aldrich', 'aldrichton', 'aldridge', 'aldridges', 'aldritch', 'aldrous',
-  'aldryngton', 'aldryn', 'aldy', 'ale', 'aleacetous', 'aleak', 'aleak', 'aleatory',
-  'aleb', 'aleberry', 'alec', 'alecost', 'alecosts', 'alecs', 'alectoon', 'alectryon',
-  'alectryon', 'alectryon', 'alectorian', 'alectorine', 'alectoris', 'alectoromancy',
-  'alectoromantic', 'alectoromancy', 'alectoromantia', 'alectory', 'alectorygist',
-  'alectorylogy', 'alectorylene', 'alectorship', 'alectorus', 'alectour', 'alectous',
-  'alectris', 'alectryomancy', 'alelectualness', 'aledger', 'aledges', 'aledin',
-  'aledine', 'alee', 'aleechis', 'aleechs', 'aleece', 'aleeches', 'aleeches', 'alees',
-  'aleatory', 'alecost', 'alecosts', 'alectryon', 'alectic', 'alective', 'alectorian',
-  'alectorine', 'alectoris', 'alectoromancy', 'alectoropodes', 'alectoropody',
-  'alectorship', 'alectors', 'alectory', 'alectryon', 'alecturus', 'alecsine', 'alecst',
-  'alectryon', 'alectryomancy', 'alectryomantic', 'alectryomantia', 'alectuary', 'alecurionai',
-  'alecturus', 'aledd', 'aleddine', 'aleddish', 'aleddite', 'aleddin', 'aleddine',
-  'aleddish', 'aleddite', 'aleder', 'aledge', 'aledged', 'aledger', 'aledges', 'aledging',
-  'aledine', 'alediom', 'aledious', 'aledism', 'aledite', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary',
-  'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary', 'aledmary'
-];
+// Use the canonical BIP-39 English wordlist from the bip39 package
+const BIP39_WORDLIST = bip39.wordlists.EN;
 
 /**
  * Generate random entropy + BIP-39 seed phrase
@@ -118,10 +31,14 @@ export function generateRandomSeed(wordCount = 12) {
 }
 
 /**
- * Validate BIP-39 phrase
+ * Validate BIP-39 phrase (includes checksum verification)
  */
 export function validateSeedPhrase(phrase) {
-  return bip39.validateMnemonic(phrase);
+  if (!phrase || typeof phrase !== 'string') return false;
+  const words = phrase.trim().split(/\s+/);
+  if (![12, 15, 18, 21, 24].includes(words.length)) return false;
+  // bip39.validateMnemonic checks both wordlist membership AND checksum
+  return bip39.validateMnemonic(phrase.trim());
 }
 
 /**

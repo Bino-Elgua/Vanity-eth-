@@ -1,24 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import useCloak from './hooks/useCloak';
-import Generator from './components/Generator';
-import Results from './components/Results';
-import Statistics from './components/Statistics';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Lazy-loaded heavy components (code-split by Vite)
+const Generator = lazy(() => import('./components/Generator'));
+const Results = lazy(() => import('./components/Results'));
+const Statistics = lazy(() => import('./components/Statistics'));
+
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
+    </div>
+  );
+}
 
 function CloakSeedPage() {
   const cloak = useCloak();
   return (
-    <div className="max-w-2xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 gradient-text">CloakSeed</h2>
-      <p className="mb-4 text-gray-400">Status: {cloak.cipher ? 'cipher loaded' : 'no cipher'}</p>
-      <button
-        onClick={() => cloak.setCipherFromTheme('animals')}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
-      >
-        Load Animals Theme
-      </button>
-      <p className="mt-4 text-gray-400">Real Seed: {cloak.realSeed || 'none'}</p>
-    </div>
+    <ErrorBoundary fallbackTitle="CloakSeed Error">
+      <div className="max-w-2xl mx-auto">
+        <h2 className="text-3xl font-bold mb-6 gradient-text">CloakSeed</h2>
+        <p className="mb-4 text-gray-400">Status: {cloak.cipher ? 'cipher loaded' : 'no cipher'}</p>
+        <button
+          onClick={() => cloak.setCipherFromTheme('animals')}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
+        >
+          Load Animals Theme
+        </button>
+        <p className="mt-4 text-gray-400">Real Seed: {cloak.realSeed || 'none'}</p>
+      </div>
+    </ErrorBoundary>
   );
 }
 
@@ -35,18 +48,20 @@ function VanityPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 gradient-text">Vanity Address Generator</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <Generator onResult={handleResult} onStatsUpdate={handleStatsUpdate} />
-          <Results results={results} />
-        </div>
-        <div>
-          <Statistics />
+    <ErrorBoundary fallbackTitle="Generator Error">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-3xl font-bold mb-6 gradient-text">Vanity Address Generator</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <Generator onResult={handleResult} onStatsUpdate={handleStatsUpdate} />
+            <Results results={results} />
+          </div>
+          <div>
+            <Statistics />
+          </div>
         </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }
 
@@ -85,10 +100,12 @@ export default function App() {
       <div className="min-h-screen bg-black text-white">
         <NavBar />
         <main className="px-4 pb-12">
-          <Routes>
-            <Route path="/" element={<VanityPage />} />
-            <Route path="/cloakseed" element={<CloakSeedPage />} />
-          </Routes>
+          <Suspense fallback={<LoadingSpinner />}>
+            <Routes>
+              <Route path="/" element={<VanityPage />} />
+              <Route path="/cloakseed" element={<CloakSeedPage />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </Router>

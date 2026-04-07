@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Play, Square, Copy, Download } from 'lucide-react'
-import { generatePrivateKey, getPublicKey, getAddressFromPublicKey, matchesPattern, calculateDifficulty, formatTimeEstimate } from '../utils/crypto'
+import { generatePrivateKey, getPublicKey, getAddressFromPublicKey, matchesPattern, calculateDifficulty, formatTimeEstimate, validatePatternInputs } from '../utils/crypto'
 
 export default function Generator({ onResult, onStatsUpdate }) {
   const [prefix, setPrefix] = useState('')
@@ -15,9 +15,25 @@ export default function Generator({ onResult, onStatsUpdate }) {
   const [speed, setSpeed] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [eta, setEta] = useState(0)
+  const [workerError, setWorkerError] = useState(null)
 
   const startTimeRef = React.useRef(null)
   const generationRef = React.useRef(null)
+  const workersRef = React.useRef([])
+
+  // Detect worker support once
+  const workersSupported = React.useRef((() => {
+    try {
+      const blob = new Blob(['self.onmessage=()=>{}'], { type: 'text/javascript' })
+      const url = URL.createObjectURL(blob)
+      const w = new Worker(url)
+      w.terminate()
+      URL.revokeObjectURL(url)
+      return true
+    } catch {
+      return false
+    }
+  })())
 
   /**
    * Start generation with optimized batching
@@ -25,6 +41,12 @@ export default function Generator({ onResult, onStatsUpdate }) {
   const handleStart = async () => {
     if (!prefix && !suffix) {
       alert('Enter a prefix or suffix')
+      return
+    }
+
+    const validation = validatePatternInputs(prefix, suffix)
+    if (!validation.valid) {
+      alert(validation.error)
       return
     }
 
@@ -87,7 +109,17 @@ export default function Generator({ onResult, onStatsUpdate }) {
     if (generationRef.current) {
       generationRef.current.aborted = true
     }
+    // Terminate any active workers
+    workersRef.current.forEach(w => { try { w.terminate() } catch {} })
+    workersRef.current = []
   }
+
+  // Cleanup workers on unmount
+  React.useEffect(() => {
+    return () => {
+      workersRef.current.forEach(w => { try { w.terminate() } catch {} })
+    }
+  }, [])
 
   const progressPercent = Math.min((found / maxResults) * 100, 100)
 
@@ -102,11 +134,11 @@ export default function Generator({ onResult, onStatsUpdate }) {
           <input
             type="text"
             value={prefix}
-            onChange={(e) => setPrefix(e.target.value)}
+            onChange={(e) => setPrefix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
             placeholder="e.g., deadbeef"
             disabled={isGenerating}
             className="input"
-            maxLength="40"
+            maxLength="10"
           />
         </div>
 
@@ -115,11 +147,11 @@ export default function Generator({ onResult, onStatsUpdate }) {
           <input
             type="text"
             value={suffix}
-            onChange={(e) => setSuffix(e.target.value)}
+            onChange={(e) => setSuffix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
             placeholder="e.g., c0ffee"
             disabled={isGenerating}
             className="input"
-            maxLength="40"
+            maxLength="10"
           />
         </div>
 
@@ -211,6 +243,13 @@ export default function Generator({ onResult, onStatsUpdate }) {
               <div className="text-xs text-gray-500 dark:text-gray-400">Elapsed</div>
               <div className="font-bold">{elapsed}s</div>
             </div>
+          </div>
+        )}
+
+        {/* Worker status */}
+        {!workersSupported.current && (
+          <div className="text-xs text-yellow-500 bg-yellow-500/10 px-3 py-2 rounded">
+            Web Workers unavailable — running in single-thread mode
           </div>
         )}
 

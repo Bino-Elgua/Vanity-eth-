@@ -1,9 +1,13 @@
 import * as secp256k1 from '@noble/secp256k1'
 import { keccak_256 } from '@noble/hashes/sha3'
 
-/**
- * Helper: Convert hex string to Uint8Array
- */
+// ── Constants ──
+
+const MAX_PATTERN_LENGTH = 10
+const HEX_PATTERN = /^[0-9a-fA-F]*$/
+
+// ── Helpers ──
+
 function hexToBytes(hex) {
   const h = hex.replace('0x', '')
   const bytes = new Uint8Array(h.length / 2)
@@ -13,14 +17,51 @@ function hexToBytes(hex) {
   return bytes
 }
 
-/**
- * Helper: Convert Uint8Array to hex string
- */
 function bytesToHex(bytes) {
   return Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('')
 }
+
+// ── Input sanitization ──
+
+/**
+ * Validate and sanitize a vanity pattern (prefix or suffix)
+ * @param {string} pattern - Raw user input
+ * @returns {{ valid: boolean, sanitized: string, error?: string }}
+ */
+export function sanitizePattern(pattern) {
+  if (!pattern || pattern.length === 0) {
+    return { valid: true, sanitized: '' }
+  }
+  const trimmed = pattern.trim()
+  if (trimmed.length > MAX_PATTERN_LENGTH) {
+    return { valid: false, sanitized: '', error: `Pattern exceeds ${MAX_PATTERN_LENGTH} characters` }
+  }
+  if (!HEX_PATTERN.test(trimmed)) {
+    return { valid: false, sanitized: '', error: 'Pattern must contain only hex characters (0-9, a-f)' }
+  }
+  return { valid: true, sanitized: trimmed }
+}
+
+/**
+ * Validate both prefix and suffix together
+ * @param {string} prefix
+ * @param {string} suffix
+ * @returns {{ valid: boolean, prefix: string, suffix: string, error?: string }}
+ */
+export function validatePatternInputs(prefix, suffix) {
+  const p = sanitizePattern(prefix)
+  if (!p.valid) return { valid: false, prefix: '', suffix: '', error: `Prefix: ${p.error}` }
+  const s = sanitizePattern(suffix)
+  if (!s.valid) return { valid: false, prefix: '', suffix: '', error: `Suffix: ${s.error}` }
+  if (p.sanitized.length + s.sanitized.length > MAX_PATTERN_LENGTH) {
+    return { valid: false, prefix: '', suffix: '', error: `Combined pattern exceeds ${MAX_PATTERN_LENGTH} characters` }
+  }
+  return { valid: true, prefix: p.sanitized, suffix: s.sanitized }
+}
+
+// ── Key generation ──
 
 /**
  * Generate a random private key using CSPRNG
@@ -87,25 +128,26 @@ export function toChecksumAddress(address) {
 
 /**
  * Check if address matches pattern (prefix and/or suffix)
- * @param {string} address - 42-char address
- * @param {string} prefix - prefix pattern (without '0x')
- * @param {string} suffix - suffix pattern
+ * Uses direct string comparison only — no regex, no ReDoS risk.
+ * @param {string} address - 42-char checksummed address
+ * @param {string} prefix - hex prefix (without '0x'), pre-sanitized
+ * @param {string} suffix - hex suffix, pre-sanitized
  * @param {boolean} caseSensitive - whether to match case exactly
  * @returns {boolean}
  */
 export function matchesPattern(address, prefix, suffix, caseSensitive = false) {
+  if (!address || address.length !== 42) return false
   let addr = address.slice(2)
-  
+
   if (!caseSensitive) {
     addr = addr.toLowerCase()
-    prefix = prefix.toLowerCase()
-    suffix = suffix.toLowerCase()
+    prefix = (prefix || '').toLowerCase()
+    suffix = (suffix || '').toLowerCase()
   }
 
-  const prefixMatch = !prefix || addr.startsWith(prefix)
-  const suffixMatch = !suffix || addr.endsWith(suffix)
-
-  return prefixMatch && suffixMatch
+  if (prefix && addr.slice(0, prefix.length) !== prefix) return false
+  if (suffix && addr.slice(-suffix.length) !== suffix) return false
+  return true
 }
 
 /**

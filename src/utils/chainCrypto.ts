@@ -5,13 +5,9 @@ import { sha256 } from '@noble/hashes/sha256'
 import { ripemd160 } from '@noble/hashes/ripemd160'
 import { blake2b } from '@noble/hashes/blake2b'
 import bs58 from 'bs58'
+import type { Chain, ChainId, KeyPair, GeneratedAddress, HashType, ValidationResult } from './types'
 
-/**
- * Multi-chain cryptography engine
- * Handles secp256k1, ed25519, schnorr across chains
- */
-
-function hexToBytes(hex) {
+function hexToBytes(hex: string): Uint8Array {
   const h = hex.replace('0x', '')
   const bytes = new Uint8Array(h.length / 2)
   for (let i = 0; i < h.length; i += 2) {
@@ -20,7 +16,7 @@ function hexToBytes(hex) {
   return bytes
 }
 
-function bytesToHex(bytes) {
+function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('')
@@ -28,7 +24,7 @@ function bytesToHex(bytes) {
 
 // ── Base58Check encoding (Bitcoin) ──
 
-function base58CheckEncode(version, payload) {
+function base58CheckEncode(version: number, payload: Uint8Array): string {
   const data = new Uint8Array(1 + payload.length)
   data[0] = version
   data.set(payload, 1)
@@ -43,7 +39,7 @@ function base58CheckEncode(version, payload) {
 
 const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
 
-function bech32Polymod(values) {
+function bech32Polymod(values: number[]): number {
   const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
   let chk = 1
   for (const v of values) {
@@ -56,31 +52,31 @@ function bech32Polymod(values) {
   return chk
 }
 
-function bech32HrpExpand(hrp) {
-  const ret = []
+function bech32HrpExpand(hrp: string): number[] {
+  const ret: number[] = []
   for (let i = 0; i < hrp.length; i++) ret.push(hrp.charCodeAt(i) >> 5)
   ret.push(0)
   for (let i = 0; i < hrp.length; i++) ret.push(hrp.charCodeAt(i) & 31)
   return ret
 }
 
-function bech32CreateChecksum(hrp, data) {
+function bech32CreateChecksum(hrp: string, data: number[]): number[] {
   const values = [...bech32HrpExpand(hrp), ...data, 0, 0, 0, 0, 0, 0]
   const polymod = bech32Polymod(values) ^ 1
-  const ret = []
+  const ret: number[] = []
   for (let i = 0; i < 6; i++) ret.push((polymod >> (5 * (5 - i))) & 31)
   return ret
 }
 
-function bech32Encode(hrp, data5bit) {
+function bech32Encode(hrp: string, data5bit: number[]): string {
   const checksum = bech32CreateChecksum(hrp, data5bit)
   const combined = [...data5bit, ...checksum]
   return hrp + '1' + combined.map(d => BECH32_CHARSET[d]).join('')
 }
 
-function convertBits(data, fromBits, toBits, pad) {
+function convertBits(data: Uint8Array, fromBits: number, toBits: number, pad: boolean): number[] {
   let acc = 0, bits = 0
-  const ret = []
+  const ret: number[] = []
   const maxv = (1 << toBits) - 1
   for (const value of data) {
     acc = (acc << fromBits) | value
@@ -96,110 +92,76 @@ function convertBits(data, fromBits, toBits, pad) {
   return ret
 }
 
-export function getHashFunction(hashType) {
+// ── Hash function selector ──
+
+export function getHashFunction(hashType: HashType): (data: Uint8Array) => Uint8Array {
   switch (hashType) {
-    case 'keccak256':
-      return data => keccak_256(data)
-    case 'sha256':
-      return data => sha256(data)
-    case 'blake2b':
-      return data => blake2b(data, { dkLen: 32 })
-    case 'sha3':
-      return data => sha3_256(data)
-    default:
-      return data => keccak_256(data)
+    case 'keccak256': return (data) => keccak_256(data)
+    case 'sha256':    return (data) => sha256(data)
+    case 'blake2b':   return (data) => blake2b(data, { dkLen: 32 })
+    case 'sha3':      return (data) => sha3_256(data)
+    default:          return (data) => keccak_256(data)
   }
 }
 
-export async function generateKeyForChain(chain) {
+// ── Key generation ──
+
+export async function generateKeyForChain(chain: Chain): Promise<KeyPair> {
   const privateKey = crypto.getRandomValues(new Uint8Array(32))
-  
   if (chain.curve === 'ed25519') {
     const publicKey = await ed25519.getPublicKey(privateKey)
-    return {
-      privateKey: bytesToHex(privateKey),
-      publicKey: bytesToHex(publicKey),
-      privateKeyBytes: privateKey,
-      publicKeyBytes: publicKey,
-    }
+    return { privateKey: bytesToHex(privateKey), publicKey: bytesToHex(publicKey), privateKeyBytes: privateKey, publicKeyBytes: publicKey }
   } else {
-    // secp256k1 / schnorr
     const publicKey = secp256k1.getPublicKey(privateKey, false)
-    return {
-      privateKey: bytesToHex(privateKey),
-      publicKey: bytesToHex(publicKey),
-      privateKeyBytes: privateKey,
-      publicKeyBytes: publicKey,
-    }
+    return { privateKey: bytesToHex(privateKey), publicKey: bytesToHex(publicKey), privateKeyBytes: privateKey, publicKeyBytes: publicKey }
   }
 }
 
-export async function generateAddressForChain(chain, privateKey) {
+// ── Address derivation ──
+
+export async function generateAddressForChain(chain: Chain, privateKey: string | Uint8Array): Promise<GeneratedAddress> {
   const privKeyBytes = typeof privateKey === 'string' ? hexToBytes(privateKey) : privateKey
   const hashFn = getHashFunction(chain.hash)
 
-  let publicKeyBytes, address
-
+  let publicKeyBytes: Uint8Array
   if (chain.curve === 'ed25519') {
     publicKeyBytes = await ed25519.getPublicKey(privKeyBytes)
   } else {
-    // Ethereum needs uncompressed pubkey; Bitcoin/Cosmos use compressed
     const compressed = chain.id !== 'ethereum'
     publicKeyBytes = secp256k1.getPublicKey(privKeyBytes, compressed)
   }
 
+  let address: string
   switch (chain.id) {
-    case 'ethereum':
-      address = deriveEthereumAddress(publicKeyBytes, hashFn)
-      break
-    case 'solana':
-      address = deriveSolanaAddress(publicKeyBytes)
-      break
-    case 'bitcoin':
-      address = deriveBitcoinAddress(publicKeyBytes, hashFn)
-      break
-    case 'sui':
-      address = deriveSuiAddress(publicKeyBytes, hashFn)
-      break
-    case 'cosmos':
-      address = deriveCosmosAddress(publicKeyBytes, hashFn)
-      break
-    case 'aptos':
-      address = deriveAptosAddress(publicKeyBytes, hashFn)
-      break
-    default:
-      address = deriveEthereumAddress(publicKeyBytes, hashFn)
+    case 'ethereum': address = deriveEthereumAddress(publicKeyBytes, hashFn); break
+    case 'solana':   address = deriveSolanaAddress(publicKeyBytes); break
+    case 'bitcoin':  address = deriveBitcoinAddress(publicKeyBytes); break
+    case 'sui':      address = deriveSuiAddress(publicKeyBytes); break
+    case 'cosmos':   address = deriveCosmosAddress(publicKeyBytes); break
+    case 'aptos':    address = deriveAptosAddress(publicKeyBytes); break
+    default:         address = deriveEthereumAddress(publicKeyBytes, hashFn)
   }
-  
-  return {
-    address,
-    privateKey: bytesToHex(privKeyBytes),
-    publicKey: bytesToHex(publicKeyBytes),
-  }
+
+  return { address, privateKey: bytesToHex(privKeyBytes), publicKey: bytesToHex(publicKeyBytes) }
 }
 
-function deriveEthereumAddress(publicKey, hashFn) {
-  // Remove first byte (0x04) for uncompressed
+function deriveEthereumAddress(publicKey: Uint8Array, hashFn: (d: Uint8Array) => Uint8Array): string {
   const pubBytes = publicKey.slice(1)
   const hash = hashFn(pubBytes)
-  const address = '0x' + bytesToHex(hash).slice(-40)
-  return toChecksumAddress(address)
+  return toChecksumAddress('0x' + bytesToHex(hash).slice(-40))
 }
 
-function deriveSolanaAddress(publicKey) {
-  // Solana address = base58 encoding of the raw ed25519 public key (32 bytes)
+function deriveSolanaAddress(publicKey: Uint8Array): string {
   return bs58.encode(publicKey)
 }
 
-function deriveBitcoinAddress(publicKey, hashFn) {
-  // P2PKH: Base58Check(0x00 || RIPEMD160(SHA256(compressed_pubkey)))
+function deriveBitcoinAddress(publicKey: Uint8Array): string {
   const sha256Hash = sha256(publicKey)
   const hash160 = ripemd160(sha256Hash)
-  return base58CheckEncode(0x00, hash160) // mainnet version byte
+  return base58CheckEncode(0x00, hash160)
 }
 
-function deriveSuiAddress(publicKey, hashFn) {
-  // Sui: blake2b(0x00 || pubkey) — scheme flag 0x00 = ed25519
+function deriveSuiAddress(publicKey: Uint8Array): string {
   const flagged = new Uint8Array(1 + publicKey.length)
   flagged[0] = 0x00
   flagged.set(publicKey, 1)
@@ -207,16 +169,14 @@ function deriveSuiAddress(publicKey, hashFn) {
   return '0x' + bytesToHex(hash)
 }
 
-function deriveCosmosAddress(publicKey, hashFn) {
-  // Cosmos: bech32("cosmos", RIPEMD160(SHA256(compressed_secp256k1_pubkey)))
+function deriveCosmosAddress(publicKey: Uint8Array): string {
   const sha256Hash = sha256(publicKey)
   const hash160 = ripemd160(sha256Hash)
   const words = convertBits(hash160, 8, 5, true)
   return bech32Encode('cosmos', words)
 }
 
-function deriveAptosAddress(publicKey, hashFn) {
-  // Aptos: 0x + SHA3-256(pubkey || 0x00) — scheme byte 0x00 = ed25519
+function deriveAptosAddress(publicKey: Uint8Array): string {
   const combined = new Uint8Array(publicKey.length + 1)
   combined.set(publicKey)
   combined[publicKey.length] = 0x00
@@ -224,7 +184,7 @@ function deriveAptosAddress(publicKey, hashFn) {
   return '0x' + bytesToHex(hash)
 }
 
-function toChecksumAddress(address) {
+function toChecksumAddress(address: string): string {
   const addr = address.toLowerCase().slice(2)
   const hashHex = bytesToHex(keccak_256(new TextEncoder().encode(addr)))
   let checksum = '0x'
@@ -236,13 +196,11 @@ function toChecksumAddress(address) {
 
 // ── Per-chain address validation ──
 
-const ADDRESS_VALIDATORS = {
+const ADDRESS_VALIDATORS: Record<string, (addr: string) => boolean> = {
   ethereum: (addr) => /^0x[0-9a-fA-F]{40}$/.test(addr),
   solana: (addr) => {
-    try {
-      const decoded = bs58.decode(addr)
-      return decoded.length === 32
-    } catch { return false }
+    try { return bs58.decode(addr).length === 32 }
+    catch { return false }
   },
   bitcoin: (addr) => {
     try {
@@ -255,38 +213,27 @@ const ADDRESS_VALIDATORS = {
              hash[2] === checksum[2] && hash[3] === checksum[3]
     } catch { return false }
   },
-  sui: (addr) => /^0x[0-9a-fA-F]{64}$/.test(addr),
+  sui:    (addr) => /^0x[0-9a-fA-F]{64}$/.test(addr),
   cosmos: (addr) => /^cosmos1[a-z0-9]{38}$/.test(addr),
-  aptos: (addr) => /^0x[0-9a-fA-F]{64}$/.test(addr),
+  aptos:  (addr) => /^0x[0-9a-fA-F]{64}$/.test(addr),
 }
 
-export function validateAddressForChain(address, chainId) {
+export function validateAddressForChain(address: string, chainId: string): ValidationResult {
   const validator = ADDRESS_VALIDATORS[chainId]
   if (!validator) return { valid: false, error: `Unknown chain: ${chainId}` }
   const valid = validator(address)
   return { valid, error: valid ? null : `Invalid ${chainId} address format` }
 }
 
-export function matchesPatternForChain(address, chain, prefix, suffix) {
+export function matchesPatternForChain(address: string, chain: Chain, prefix: string, suffix: string): boolean {
   if (chain.id === 'bitcoin' || chain.id === 'solana') {
-    // Base58 addresses — case-sensitive matching
     const addr = chain.id === 'bitcoin' ? address.slice(1) : address
-    const prefixMatch = !prefix || addr.startsWith(prefix)
-    const suffixMatch = !suffix || addr.endsWith(suffix)
-    return prefixMatch && suffixMatch
+    return (!prefix || addr.startsWith(prefix)) && (!suffix || addr.endsWith(suffix))
   }
-
   if (chain.id === 'cosmos') {
-    // Bech32 — strip "cosmos1" prefix, lowercase
     const addr = address.replace(/^cosmos1/, '')
-    const prefixMatch = !prefix || addr.startsWith(prefix.toLowerCase())
-    const suffixMatch = !suffix || addr.endsWith(suffix.toLowerCase())
-    return prefixMatch && suffixMatch
+    return (!prefix || addr.startsWith(prefix.toLowerCase())) && (!suffix || addr.endsWith(suffix.toLowerCase()))
   }
-
-  // Hex addresses (ETH, Sui, Aptos) — strip 0x, case-insensitive
   const hexAddr = address.replace(/^0x/, '').toLowerCase()
-  const prefixMatch = !prefix || hexAddr.startsWith(prefix.toLowerCase())
-  const suffixMatch = !suffix || hexAddr.endsWith(suffix.toLowerCase())
-  return prefixMatch && suffixMatch
+  return (!prefix || hexAddr.startsWith(prefix.toLowerCase())) && (!suffix || hexAddr.endsWith(suffix.toLowerCase()))
 }

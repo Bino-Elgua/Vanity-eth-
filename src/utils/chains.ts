@@ -1,12 +1,11 @@
+import type { Chain, ChainId } from './types'
+
 /**
  * Multi-Chain configuration and utilities
- * Ethereum, Solana, Bitcoin, Sui, Cosmos, Aptos
- *
  * Each chain has an `rpcs` array (ordered by priority) for failover rotation.
- * The legacy `rpc` field points to the primary endpoint for backward compat.
  */
 
-export const CHAINS = {
+export const CHAINS: Record<ChainId, Chain> = {
   ethereum: {
     id: 'ethereum',
     name: 'Ethereum',
@@ -22,6 +21,7 @@ export const CHAINS = {
       'https://rpc.ankr.com/eth',
       'https://eth.llamarpc.com',
     ],
+    rpc: 'https://cloudflare-eth.com',
     explorerTx: 'https://etherscan.io/tx/',
   },
   solana: {
@@ -38,6 +38,7 @@ export const CHAINS = {
       'https://api.mainnet-beta.solana.com',
       'https://solana-mainnet.rpc.extrnode.com',
     ],
+    rpc: 'https://api.mainnet-beta.solana.com',
     explorerTx: 'https://explorer.solana.com/tx/',
   },
   bitcoin: {
@@ -54,6 +55,7 @@ export const CHAINS = {
       'https://blockstream.info/api',
       'https://mempool.space/api',
     ],
+    rpc: 'https://blockstream.info/api',
     explorerTx: 'https://blockstream.info/tx/',
   },
   sui: {
@@ -70,6 +72,7 @@ export const CHAINS = {
       'https://fullnode.mainnet.sui.io',
       'https://sui-mainnet.nodeinfra.com',
     ],
+    rpc: 'https://fullnode.mainnet.sui.io',
     explorerTx: 'https://explorer.sui.io/txblock/',
   },
   cosmos: {
@@ -86,6 +89,7 @@ export const CHAINS = {
       'https://cosmos-rest.publicnode.com',
       'https://rest.cosmos.directory/cosmoshub',
     ],
+    rpc: 'https://cosmos-rest.publicnode.com',
     explorerTx: 'https://mintscan.io/cosmos/txs/',
   },
   aptos: {
@@ -102,19 +106,15 @@ export const CHAINS = {
       'https://fullnode.mainnet.aptoslabs.com',
       'https://aptos-mainnet.pontem.network',
     ],
+    rpc: 'https://fullnode.mainnet.aptoslabs.com',
     explorerTx: 'https://explorer.aptoslabs.com/txn/',
   },
 }
 
-// Backward compat: expose primary RPC as `rpc`
-Object.values(CHAINS).forEach(chain => {
-  chain.rpc = chain.rpcs[0]
-})
-
-export function getChain(chainId) {
-  return CHAINS[chainId] || CHAINS.ethereum
+export function getChain(chainId: string): Chain {
+  return CHAINS[chainId as ChainId] || CHAINS.ethereum
 }
 
-export function getAllChains() {
+export function getAllChains(): Chain[] {
   return Object.values(CHAINS)
 }

@@ -1,427 +1,192 @@
-# Vanity-ETH Pro - Architecture & Implementation Guide
+# VanityCloakSeed — Architecture
 
-## System Architecture Overview
+## Overview
+
+VanityCloakSeed is a dual-purpose client-side crypto tool:
+1. **Vanity Address Generator** — Generate Ethereum (+ 5 other chains) vanity addresses with custom prefix/suffix patterns
+2. **CloakSeed** — Hide BIP-39 seed phrases behind a personal 2048-word cipher overlay
+
+Everything runs 100% in the browser. No server, no telemetry, no network calls except the optional Poison Radar on-chain scanner.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| UI | React 18, React Router 6, Tailwind CSS 3 |
+| Crypto | @noble/secp256k1, @noble/ed25519, @noble/hashes, bip39, bip32, tweetnacl, ethers.js |
+| Build | Vite 5, Terser, SRI hashes |
+| Tests | Vitest |
+| PWA | Service worker (cache-first), Web App Manifest |
+| Workers | Web Workers + SharedArrayBuffer bridge |
+
+## Directory Structure
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        User Interface Layer                       │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ React Components (Generator, Results, Stats, Settings)      │ │
-│  │ - Responsive Tailwind CSS styling                          │ │
-│  │ - Real-time state management                              │ │
-│  │ - Dark/Light mode toggle                                  │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    State Management Layer                         │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ React Hooks (useAddressGenerator, useState, useEffect)     │ │
-│  │ - Manage generation state                                 │ │
-│  │ - Track statistics & performance                          │ │
-│  │ - Handle worker communication                             │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│               Cryptographic Operations Layer                      │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
-│  │ @noble/secp256k1 │  │ @noble/hashes    │  │ CREATE2/CREATE  │ │
-│  │ - Key generation │  │ - Keccak-256     │  │ - Address calc  │ │
-│  │ - Public key     │  │ - SHA-256        │  │ - Salt brute    │ │
-│  │ - ECDSA signing  │  │ - BLAKE2b        │  │ - Nonce predict │ │
-│  └──────────────────┘  └──────────────────┘  └────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│              Parallel Execution Layer (Web Workers)               │
-│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐        │
-│  │  Worker 0      │ │  Worker 1      │ │  Worker N      │ ...    │
-│  │ - Gen private  │ │ - Gen private  │ │ - Gen private  │        │
-│  │ - Derive pubk  │ │ - Derive pubk  │ │ - Derive pubk  │        │
-│  │ - Match check  │ │ - Match check  │ │ - Match check  │        │
-│  └────────────────┘ └────────────────┘ └────────────────┘        │
-│   (SharedArrayBuffer - optional high-perf sync)                   │
-└─────────────────────────────────────────────────────────────────┘
+src/
+├── components/
+│   ├── Generator.jsx      # Vanity address generation UI
+│   ├── Results.jsx         # Found addresses display
+│   ├── Statistics.jsx      # Real-time generation stats
+│   └── ErrorBoundary.jsx   # React error boundary with crypto error detection
+├── hooks/
+│   └── useCloak.js         # CloakSeed React hook
+├── utils/
+│   ├── crypto.js           # Core ETH key generation + pattern matching
+│   ├── chainCrypto.js      # Multi-chain address derivation (6 chains)
+│   ├── chains.js           # Chain configs with RPC failover arrays
+│   ├── ciphers.js          # CloakSeed cipher engine (AES-256-GCM)
+│   ├── bip39Helper.js      # BIP-39 mnemonic generation/validation
+│   ├── poisonRadar.js      # On-chain dust/poison scanner
+│   ├── profiles.js         # Encrypted profile storage (AES-256-GCM + PBKDF2)
+│   ├── encryption.js       # Low-level AES-256-GCM primitives
+│   ├── hdWallet.js         # BIP-32/44 HD wallet derivation
+│   ├── create2.js          # CREATE2 address calculation
+│   ├── wordlists.js        # Theme-based wordlists for CloakSeed
+│   ├── types.ts            # Shared TypeScript interfaces
+│   └── __tests__/          # Vitest unit tests
+│       ├── crypto.test.ts
+│       ├── chainCrypto.test.ts
+│       ├── ciphers.test.ts
+│       ├── encryption.test.ts
+│       └── bip39Helper.test.ts
+├── workers/
+│   ├── generatorWorker.js      # Web Worker for vanity generation
+│   └── sharedWorkerBridge.js   # SharedArrayBuffer inter-worker comm
+├── App.jsx                 # Router + lazy loading + error boundaries
+└── main.jsx                # Entry point + service worker registration
 ```
+
+## Supported Chains
+
+| Chain | Curve | Address Format | Derivation |
+|-------|-------|---------------|------------|
+| Ethereum | secp256k1 | EIP-55 checksum hex | keccak256(uncompressed pubkey)[12:] |
+| Bitcoin | secp256k1 | P2PKH base58check | RIPEMD160(SHA256(compressed pubkey)) |
+| Solana | ed25519 | Base58 | Raw ed25519 pubkey |
+| Cosmos | secp256k1 | Bech32 (cosmos1...) | RIPEMD160(SHA256(compressed pubkey)) + bech32 |
+| Sui | ed25519 | 0x hex (66 chars) | blake2b(0x00 \|\| pubkey) |
+| Aptos | ed25519 | 0x hex (66 chars) | sha3_256(pubkey \|\| 0x00) |
 
 ## Data Flow
 
-### Generation Pipeline
+### Vanity Generation Pipeline
 
 ```
-User Input (prefix, suffix)
-        ↓
-Validate Input
-        ↓
-Initialize Workers (N threads)
-        ↓
-For each worker in parallel:
-  ├─ Generate random 32-byte private key (CSPRNG)
-  ├─ Derive public key via secp256k1
-  ├─ Hash public key with keccak256
-  ├─ Extract last 20 bytes → address
-  ├─ Apply EIP-55 checksum
-  ├─ Match against prefix/suffix
-  ├─ If match: Send to main thread
-  └─ Update stats every 1000 attempts
-        ↓
-Main Thread:
-  ├─ Display matched address
-  ├─ Update statistics
-  ├─ Check if max results reached
-  └─ Stop generation if done
+User Input (prefix, suffix, chain)
+  → validatePatternInputs() — hex-only, max 10 chars
+  → Spawn N Web Workers
+  → Each worker loop:
+      generatePrivateKey() [CSPRNG]
+      → getPublicKey() [secp256k1/ed25519]
+      → getAddressFromPublicKey() [chain-specific hash]
+      → matchesPattern() [direct string.slice(), no regex]
+      → If match: postMessage(result) to main thread
+  → Main thread: update stats every 1000 attempts via SharedArrayBuffer
+  → Stop when maxResults reached
 ```
 
-### CREATE2 Flow
+### CloakSeed Flow
 
 ```
-Inputs: deployer, salt, bytecode
-        ↓
-Normalize all inputs to bytes
-        ↓
-Calculate: initCodeHash = keccak256(bytecode)
-        ↓
-Construct: 0xff ++ deployer ++ salt ++ initCodeHash
-        ↓
-Hash: keccak256(constructed)
-        ↓
-Extract: Last 20 bytes
-        ↓
-Apply: EIP-55 checksum
-        ↓
-Return: Predicted contract address
+Real Seed Phrase (12-24 BIP-39 words)
+  → bip39.validateMnemonic() check
+  → ciphers.encodePhrase(realPhrase, cipherMap)
+  → For each word: Map lookup in 2048-word cipher
+  → Output: Cloak phrase (looks like valid BIP-39 but derives different wallets)
+
+Decloaking:
+  → ciphers.decodePhrase(cloakPhrase, cipherMap)
+  → Reverse map lookup
+  → bip39.validateMnemonic() on output (checksum verify)
+  → Original seed restored
 ```
 
-## Component Hierarchy
+### Cipher Export/Import (AES-256-GCM)
 
 ```
-App
-├── Header
-│   ├── Title & Description
-│   ├── Dark Mode Toggle
-│   └── Live Stats (Generated, Speed, Found, Elapsed)
-├── Navigation
-│   ├── Generator Tab
-│   ├── CREATE2 Tab
-│   ├── Security Tab
-│   └── Settings Tab
-├── Main Content Grid
-│   ├── Left Column (2/3 width)
-│   │   └── Active Tab Component
-│   │       ├── Generator
-│   │       ├── Create2Calculator
-│   │       ├── SecurityWarnings
-│   │       └── Settings
-│   └── Right Column (1/3 width)
-│       ├── Statistics (Tips)
-│       └── Results List
-└── Footer
-    └── License & Disclaimer
+Export:
+  password → PBKDF2(100k iterations, random salt) → AES key
+  → AES-256-GCM encrypt(cipherMap JSON, random IV)
+  → Output: { version: 2, salt, iv, ciphertext, tag }
+
+Import:
+  → Detect version field
+  → v2: PBKDF2 derive key → AES-GCM decrypt
+  → v1 (legacy): XOR migration path → re-encrypt as v2
 ```
 
-## Key Algorithms
+## Network Layer (Poison Radar)
 
-### 1. Ethereum Address Derivation
+Poison Radar is the only component that touches the network. All safeguards:
 
-```javascript
-// Private Key → Address Pipeline
-privateKey (32 bytes)
-    ↓ secp256k1.getPublicKey()
-publicKey (65 bytes uncompressed)
-    ↓ keccak256()
-hash (32 bytes)
-    ↓ take last 20 bytes
-address (20 bytes / 40 hex chars)
-    ↓ EIP-55 checksum
-checksumAddress (mixed case hex)
-```
+- **RPC failover**: Each chain has 2-3 RPC endpoints, tried in order
+- **Exponential backoff**: 500ms * 2^attempt + random jitter, max 2 retries per RPC
+- **Rate limiting**: Sliding window, 10 requests/minute per chain
+- **Timeout**: 5-second AbortController on every fetch
+- **Cache**: 2-minute TTL Map-based cache
+- **Validation**: Address format checked before any network call
+- **CSP**: `connect-src` whitelist restricts to known RPC domains only
 
-**Implementation:**
-```javascript
-export function generateAddress(privateKey) {
-  const privateKeyBytes = new Uint8Array(Buffer.from(privateKey, 'hex'))
-  const publicKeyBytes = secp256k1.getPublicKey(privateKeyBytes, false)
-  const hash = keccak_256(publicKeyBytes)
-  const address = '0x' + Buffer.from(hash).toString('hex').slice(-40)
-  return toChecksumAddress(address)
-}
-```
+## Security Model
 
-### 2. Pattern Matching (Prefix + Suffix)
+### Encryption
 
-```javascript
-// Dual-side matching for efficiency
-address: "0xdeadbeefcafebabe1234567890abcdef12345678"
-pattern: prefix="dead", suffix="cafe"
+| Purpose | Algorithm | Key Derivation |
+|---------|-----------|---------------|
+| Cipher export/import | AES-256-GCM | PBKDF2 (100k iterations, SHA-256) |
+| Profile storage | AES-256-GCM | PBKDF2 (100k iterations, SHA-256) |
+| Session management | In-memory key | Password-derived, auto-lock 5 min |
 
-Check prefix: address.slice(2).startsWith("dead") → true
-Check suffix: address.slice(2).endsWith("cafe") → false (ends with "78")
-Result: No match (both must be true)
-```
+### Input Hardening
 
-**Case Sensitivity:**
-```javascript
-if (!caseSensitive) {
-  addr = addr.toLowerCase()
-  pattern = pattern.toLowerCase()
-}
-// Now both are normalized for comparison
-```
+- Hex-only pattern filter: `[^0-9a-fA-F]` stripped on input
+- Max pattern length: 10 characters (prefix + suffix combined)
+- No regex in pattern matching (prevents ReDoS)
+- Address format validation per chain before any operation
 
-### 3. EIP-55 Checksum Calculation
-
-```javascript
-// Mixed-case checksum for address integrity
-1. Take address (lowercase): "0xd1220a0cf47c7b9be7a2e6ba89f429762e7b9adb"
-2. Hash with keccak256: "8c1cb00940d8645957859f0040cd58c9991aa4d5"
-3. For each char:
-   - If hash[i] >= 8: UPPERCASE
-   - If hash[i] < 8:  lowercase
-4. Result: "0xd1220A0cf47c7b9be7A2e6ba89f429762e7b9adb"
-```
-
-### 4. CREATE2 Address Formula
+### Content Security Policy
 
 ```
-Address = last20Bytes(keccak256(0xff ++ deployer ++ salt ++ keccak256(bytecode)))
-
-Example:
-  deployer:   0x0000000000000000000000000000000000000000
-  salt:       0x0000000000000000000000000000000000000000000000000000000000000000
-  bytecode:   0x6000 (PUSH1 0x00)
-  
-  initCodeHash = keccak256(0x6000) = 0x18f2568f13f5d8ec5d8eafab36e3f3a9...
-  input = 0xff + 0x00...00 + 0x00...00 + 0x18f2...
-  address = keccak256(input)[-20:] → 0x4D1A2e2bB4F88F0250f26Ffff098B0b30B26...
+default-src 'self';
+script-src 'self' 'wasm-unsafe-eval';
+style-src 'self' 'unsafe-inline';
+connect-src 'self' [RPC domains];
+worker-src 'self' blob:;
+object-src 'none';
+frame-ancestors 'none';
 ```
 
-## Performance Optimizations
+### Headers
 
-### 1. Web Worker Parallelization
+- `Cross-Origin-Opener-Policy: same-origin` — required for SharedArrayBuffer
+- `Cross-Origin-Embedder-Policy: require-corp` — required for SharedArrayBuffer
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: no-referrer`
 
-**Benefits:**
-- Non-blocking UI (main thread free for rendering)
-- True parallelism on multi-core CPUs
-- Independent error handling per worker
+## Performance
 
-**Implementation:**
-```javascript
-// Main thread
-const workers = []
-for (let i = 0; i < numWorkers; i++) {
-  const w = new Worker('generatorWorker.js')
-  w.onmessage = handleMessage
-  workers.push(w)
-}
+### Code Splitting
 
-// Each worker runs independently:
-// for (let i = 0; i < maxResults; i++) {
-//   const addr = generateAddress(...)
-//   if (matches(...)) postMessage(result)
-// }
-```
+Vite chunks (via `manualChunks`):
+- `react-vendor` — React, ReactDOM, React Router
+- `crypto-core` — @noble/hashes, @noble/secp256k1, @noble/ed25519, tweetnacl
+- `crypto-bip` — bip32, bip39, bs58
+- `crypto-ethers` — ethers.js (largest, loaded only when needed)
+- `ui-vendor` — lucide-react, qrcode.react
 
-### 2. CSPRNG for Random Keys
+Lazy-loaded via `React.lazy()`: Generator, Results, Statistics
 
-```javascript
-// Browser's native secure random
-const randomBytes = crypto.getRandomValues(new Uint8Array(32))
-// Uses OS entropy source - cryptographically secure
-// ~60 cycles per operation on modern hardware
-```
+### Worker Communication
 
-### 3. Pattern Matching Optimization
+When `SharedArrayBuffer` is available (requires COOP/COEP headers):
+- 4-slot `Int32Array`: control flag, attempts, found, speed
+- Atomic operations for lock-free stats aggregation
+- Falls back to standard `postMessage` when unavailable
 
-```javascript
-// Single pass check - O(n) where n = pattern length
-const prefixMatch = addr.startsWith(pattern)  // O(prefix.length)
-const suffixMatch = addr.endsWith(pattern)    // O(suffix.length)
+### Build Optimizations
 
-// vs. naive search:
-const hasPattern = addr.includes(pattern)     // O(40) worst case
-```
-
-### 4. Batch Stats Updates
-
-```javascript
-// Don't update UI every iteration (too slow)
-// Update every 1000 iterations instead
-if (attempts % 1000 === 0) {
-  updateStats()
-  await new Promise(resolve => setTimeout(resolve, 0)) // yield
-}
-```
-
-## Memory Management
-
-### Web Worker Memory
-
-```
-Main Thread:
-  - UI state (React component)
-  - Generation settings
-  - Results array (addresses only, ~100 bytes each)
-  
-Worker Thread (per worker):
-  - Temporary: buffer for crypto operations (~500 bytes)
-  - No persistent state (reset each iteration)
-  - SharedArrayBuffer (optional): stats sync
-
-Total: ~5-10MB for typical usage
-```
-
-### Garbage Collection
-
-```javascript
-// Avoid memory leaks in tight loops
-for (let i = 0; i < 1000000; i++) {
-  const privateKey = generatePrivateKey() // ~80 bytes
-  const address = getAddress(privateKey)  // ~100 bytes
-  // GC can collect these immediately after use
-  
-  if (i % 10000 === 0) {
-    // Yield to GC every 10k iterations
-    await new Promise(resolve => setTimeout(resolve, 0))
-  }
-}
-```
-
-## Security Considerations
-
-### 1. CSPRNG Strength
-
-```javascript
-// crypto.getRandomValues() uses:
-// - Linux: /dev/urandom
-// - macOS: /dev/urandom
-// - Windows: CryptGenRandom
-// - All: Entropy-pooled, suitable for cryptography
-```
-
-### 2. Private Key Handling
-
-```javascript
-// Best practices implemented:
-- Generated locally only
-- Never logged or displayed by default
-- Hidden by default in UI (show/hide toggle)
-- Can be downloaded as encrypted keystore
-- Memory freed after use
-```
-
-### 3. Address Validation
-
-```javascript
-// Prevent invalid addresses
-const isValid = /^0x[a-fA-F0-9]{40}$/.test(address)
-// Checksum verified via EIP-55
-const isChecksumValid = address === toChecksumAddress(address)
-```
-
-## Future Enhancement Paths
-
-### WebGPU Acceleration
-
-```javascript
-// Potential 100-1000x speedup via GPU
-// Compute shaders for:
-// - SIMD keccak256 (process 8-16 addresses in parallel)
-// - Batch secp256k1 operations
-// - Pattern matching on GPU
-
-// Example:
-// gpu.compute({
-//   shader: keccakShader,
-//   input: [32 random seeds],
-//   output: [32 hashes]
-// })
-```
-
-### WASM Integration
-
-```javascript
-// Replace JavaScript crypto with optimized WASM
-// Libraries:
-// - tiny-secp256k1 (C++ compiled)
-// - blst (BLST signature library)
-// - libsecp256k1 (optimized secp256k1)
-
-import init, { generate_address } from './crypto.wasm'
-
-await init()
-const address = generate_address(privateKey)
-```
-
-### Progressive Web App
-
-```javascript
-// Service Worker:
-// - Offline functionality
-// - Cache generation logic
-// - Installable to home screen
-
-// IndexedDB:
-// - Store generation history
-// - Local results persistence
-// - Offline backup
-```
-
-## Build & Deployment
-
-### Production Build Output
-
-```
-dist/
-├── index.html             (~2KB)
-├── assets/
-│   ├── main-xxxxx.js      (~150KB, gzipped ~40KB)
-│   ├── vendor-xxxxx.js    (~200KB, gzipped ~50KB)
-│   └── index-xxxxx.css    (~30KB, gzipped ~5KB)
-└── ...
-
-Total Size: ~95KB gzipped
-Load Time: <1s on 4G
-Lighthouse Score: 95+
-```
-
-### Deployment Checklist
-
-- [ ] Build production bundle: `npm run build`
-- [ ] Test in production mode: `npm run preview`
-- [ ] Verify no console errors
-- [ ] Check performance with DevTools
-- [ ] Test on mobile devices
-- [ ] Verify offline functionality
-- [ ] Check accessibility: axe DevTools
-- [ ] Security audit: OWASP top 10
-- [ ] Update version in package.json
-- [ ] Create GitHub release
-- [ ] Deploy to Vercel/GitHub Pages/self-hosted
-
-## Monitoring & Diagnostics
-
-### Performance Metrics
-
-```javascript
-// Track generation performance
-const metrics = {
-  hashesPerSecond: attempts / elapsedSeconds,
-  averageTimePerMatch: elapsedSeconds / found,
-  successRate: found / attempts,
-  workerEfficiency: (workerAttempts[i] / totalAttempts),
-}
-```
-
-### Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Slow generation | Browser limitations | Use Chrome, reduce workers |
-| Memory leak | Too many results stored | Clear results periodically |
-| UI freezing | Worker communication blocking | Use Web Workers properly |
-| Wrong addresses | Crypto bug | Validate against ethers.js |
-
----
-
-**Vanity-ETH Pro** - Built for performance, security, and user experience.
+- Terser minification with `drop_console` and `drop_debugger`
+- Subresource Integrity (SRI) hashes on all script/link tags
+- Service worker: cache-first for app shell, network-only for RPC calls
+- PWA installable with offline support for all crypto operations

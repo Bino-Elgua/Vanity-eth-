@@ -13,19 +13,40 @@ export default defineConfig({
     port: 5173,
     open: true,
     host: true,
+    headers: {
+      // Required for SharedArrayBuffer in workers
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
     outDir: 'dist',
     sourcemap: true,
     minify: 'terser',
     chunkSizeWarningLimit: 800,
+    // Enable SRI hashes on script/link tags
+    subresourceIntegrity: true,
     rollupOptions: {
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'crypto-vendor': ['ethers', 'bitcoinjs-lib', 'bip32', 'bip39', 'tweetnacl', '@noble/hashes', '@noble/secp256k1', '@noble/ed25519'],
-          'ui-vendor': ['lucide-react', 'qrcode.react', 'tailwindcss'],
+          'crypto-core': ['@noble/hashes', '@noble/secp256k1', '@noble/ed25519', 'tweetnacl'],
+          'crypto-bip': ['bip32', 'bip39', 'bs58'],
+          'crypto-ethers': ['ethers'],
+          'ui-vendor': ['lucide-react', 'qrcode.react'],
         },
+      },
+    },
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
       },
     },
   },
