@@ -59,4 +59,10 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  test: {
+    // Playwright specs live under e2e/ and run via `npm run test:e2e`, not
+    // vitest — without this exclude, vitest's default glob also picks them
+    // up and fails immediately (no Playwright fixtures in a vitest run).
+    exclude: ['e2e/**', 'node_modules/**'],
+  },
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { analyzeAddress, formatPoisonReport } from '../poisonRadar'
+import { analyzeAddress, formatPoisonReport, clearPoisonCache } from '../poisonRadar'
 
 // Mock fetch globally
 const mockFetch = vi.fn()
@@ -7,6 +7,10 @@ vi.stubGlobal('fetch', mockFetch)
 
 beforeEach(() => {
   mockFetch.mockReset()
+  // Several tests reuse the same address/chain pair — without clearing the
+  // module-level result cache, a later test can silently get a cache hit
+  // from an earlier test's result instead of exercising its own mock.
+  clearPoisonCache()
 })
 
 const ethChain = {

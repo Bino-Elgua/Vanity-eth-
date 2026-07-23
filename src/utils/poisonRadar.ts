@@ -19,6 +19,11 @@ function cacheSet(key: string, value: PoisonReport): void {
   cache.set(key, { value, ts: Date.now() })
 }
 
+/** Clear the poison-check result cache (e.g. for a manual "refresh" action). */
+export function clearPoisonCache(): void {
+  cache.clear()
+}
+
 // ── Rate limiter (10 req/min per chain) ──
 
 const rateBuckets = new Map<string, number[]>()

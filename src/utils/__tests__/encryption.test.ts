@@ -39,17 +39,17 @@ describe('encryption.ts', () => {
   })
 
   describe('encryptWithChecksum / verifyChecksum', () => {
-    it('creates a verifiable checksum', () => {
-      const payload = encryptWithChecksum('hello world', 'secret')
+    it('creates a verifiable checksum', async () => {
+      const payload = await encryptWithChecksum('hello world', 'secret')
       expect(payload.data).toBeDefined()
       expect(payload.checksum).toBeDefined()
       expect(payload.format).toBe('base64-aes')
-      expect(verifyChecksum(payload, 'secret')).toBe(true)
+      expect(await verifyChecksum(payload, 'secret')).toBe(true)
     })
 
-    it('fails with wrong password', () => {
-      const payload = encryptWithChecksum('hello world', 'secret')
-      expect(verifyChecksum(payload, 'wrong')).toBe(false)
+    it('fails with wrong password', async () => {
+      const payload = await encryptWithChecksum('hello world', 'secret')
+      expect(await verifyChecksum(payload, 'wrong')).toBe(false)
     })
   })
 })

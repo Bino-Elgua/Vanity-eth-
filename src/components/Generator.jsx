@@ -113,6 +113,7 @@ export default function Generator() {
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-2 tracking-widest">Prefix</label>
                 <input
                   type="text"
+                  data-testid="prefix-input"
                   value={prefix}
                   onChange={(e) => setPrefix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
                   placeholder="e.g. beef"
@@ -124,6 +125,7 @@ export default function Generator() {
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-2 tracking-widest">Suffix</label>
                 <input
                   type="text"
+                  data-testid="suffix-input"
                   value={suffix}
                   onChange={(e) => setSuffix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
                   placeholder="e.g. c0de"
@@ -174,6 +176,7 @@ export default function Generator() {
             <div className="pt-4">
               {!isGenerating ? (
                 <button
+                  data-testid="start-button"
                   onClick={handleStart}
                   disabled={!prefix && !suffix}
                   className="btn-primary w-full py-4 text-lg"
@@ -183,6 +186,7 @@ export default function Generator() {
                 </button>
               ) : (
                 <button
+                  data-testid="stop-button"
                   onClick={handleStop}
                   className="w-full py-4 bg-red-500/10 border border-red-500/50 text-red-500 rounded-xl font-bold hover:bg-red-500/20 flex items-center justify-center gap-2 transition-all"
                 >

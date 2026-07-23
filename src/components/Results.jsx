@@ -34,7 +34,7 @@ export default function Results({ results }) {
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex-1">
                 <div className="text-[10px] uppercase font-bold text-gray-500 mb-1">Blockchain Address</div>
-                <div className="font-mono text-sm text-primary-500 break-all leading-tight">
+                <div data-testid="result-address" className="font-mono text-sm text-primary-500 break-all leading-tight">
                   {result.address}
                 </div>
               </div>

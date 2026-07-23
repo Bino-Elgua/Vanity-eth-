@@ -4,8 +4,14 @@ import { keccak_256, sha3_256 } from '@noble/hashes/sha3'
 import { sha256 } from '@noble/hashes/sha256'
 import { ripemd160 } from '@noble/hashes/ripemd160'
 import { blake2b } from '@noble/hashes/blake2b'
+import { sha512 } from '@noble/hashes/sha512'
 import bs58 from 'bs58'
 import type { Chain, ChainId, KeyPair, GeneratedAddress, HashType, ValidationResult } from './types'
+
+// @noble/ed25519 v2 doesn't bundle a hash implementation — it must be wired
+// in explicitly, or every ed25519 call (Solana/Sui/Aptos) throws "hashes.
+// sha512Sync not set".
+ed25519.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed25519.etc.concatBytes(...m))
 
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.replace('0x', '')

@@ -15,7 +15,7 @@ interface SeedResult {
 }
 
 export function generateRandomSeed(wordCount: number = 12): SeedResult {
-  const byteLength = (wordCount * 11 - 11) / 8
+  const byteLength = (wordCount * 4) / 3
   const entropy = crypto.getRandomValues(new Uint8Array(byteLength))
   const seedPhrase = bip39.entropyToMnemonic(
     Array.from(entropy).map(b => b.toString(16).padStart(2, '0')).join('')

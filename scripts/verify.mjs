@@ -166,8 +166,13 @@ console.log('\n[6/7] Security')
 check('No Buffer usage in source utils (browser compat)', () => {
   const utilsDir = path.join(ROOT, 'src', 'utils')
   const files = readdirSync(utilsDir).filter(f => f.endsWith('.js') || f.endsWith('.ts'))
+  // hdWallet.js/.ts are exempt: bip39/bip32's public API requires real
+  // Buffer objects at the call boundary. They explicitly `import { Buffer }
+  // from 'buffer'` (aliased to the browser polyfill in vite.config.js), so
+  // this is safe in-browser — unlike a bare, unimported `Buffer` global.
+  const bufferExempt = ['types.ts', 'hdWallet.js', 'hdWallet.ts']
   for (const file of files) {
-    if (file.endsWith('.test.ts') || file === 'types.ts') continue
+    if (file.endsWith('.test.ts') || bufferExempt.includes(file)) continue
     const content = readFileSync(path.join(utilsDir, file), 'utf8')
     const lines = content.split('\n').filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
     const hasBuffer = lines.some(l => /\bBuffer\b/.test(l))

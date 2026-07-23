@@ -138,7 +138,7 @@ export async function findVanitySalt(deployer, bytecode, pattern, maxAttempts = 
  */
 export function calculateCreateAddress(deployer, nonce) {
   try {
-    const deployerBytes = Buffer.from(deployer.slice(2), 'hex')
+    const deployerBytes = hexToBytes(deployer.slice(2))
     const nonceNum = parseInt(nonce)
 
     // RLP encode [address, nonce]
@@ -147,34 +147,34 @@ export function calculateCreateAddress(deployer, nonce) {
     // For nonce > 127: length-prefixed
     let nonceRlp
     if (nonceNum === 0) {
-      nonceRlp = Buffer.from([0x80]) // RLP of 0
+      nonceRlp = new Uint8Array([0x80]) // RLP of 0
     } else if (nonceNum < 128) {
-      nonceRlp = Buffer.from([nonceNum]) // Single byte
+      nonceRlp = new Uint8Array([nonceNum]) // Single byte
     } else {
       // Multi-byte encoding
       const nonceHex = nonceNum.toString(16)
-      const nonceBytes = Buffer.from(nonceHex.padStart(nonceHex.length % 2 ? nonceHex.length + 1 : nonceHex.length, '0'), 'hex')
-      nonceRlp = Buffer.concat([Buffer.from([0x80 + nonceBytes.length]), nonceBytes])
+      const nonceBytes = hexToBytes(nonceHex.padStart(nonceHex.length % 2 ? nonceHex.length + 1 : nonceHex.length, '0'))
+      nonceRlp = concatBytes(new Uint8Array([0x80 + nonceBytes.length]), nonceBytes)
     }
 
     // RLP encode address (always 20 bytes, length-prefixed)
-    const addressRlp = Buffer.concat([Buffer.from([0x94]), deployerBytes])
+    const addressRlp = concatBytes(new Uint8Array([0x94]), deployerBytes)
 
     // Combine into list
-    const combined = Buffer.concat([addressRlp, nonceRlp])
+    const combined = concatBytes(addressRlp, nonceRlp)
     let rlpEncoded
 
     if (combined.length < 56) {
-      rlpEncoded = Buffer.concat([Buffer.from([0xc0 + combined.length]), combined])
+      rlpEncoded = concatBytes(new Uint8Array([0xc0 + combined.length]), combined)
     } else {
       const lengthHex = combined.length.toString(16)
-      const lengthBytes = Buffer.from(lengthHex.padStart(lengthHex.length % 2 ? lengthHex.length + 1 : lengthHex.length, '0'), 'hex')
-      rlpEncoded = Buffer.concat([Buffer.from([0xf7 + lengthBytes.length]), lengthBytes, combined])
+      const lengthBytes = hexToBytes(lengthHex.padStart(lengthHex.length % 2 ? lengthHex.length + 1 : lengthHex.length, '0'))
+      rlpEncoded = concatBytes(new Uint8Array([0xf7 + lengthBytes.length]), lengthBytes, combined)
     }
 
     // Hash and take last 20 bytes
     const hash = keccak_256(rlpEncoded)
-    const address = '0x' + Buffer.from(hash).toString('hex').slice(-40)
+    const address = '0x' + bytesToHex(hash).slice(-40)
 
     return toChecksumAddress(address)
   } catch (error) {
